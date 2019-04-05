@@ -33,8 +33,6 @@ You can download the Amazon Dataset from http://jmcauley.ucsd.edu/data/amazon.
 	```
 
 * Pre-training is optional to train the final model. 
-
-Pre-training:
 	```
 	python pytorch/pre_train.py --embed_size=128 --neg_number=20
 	```
