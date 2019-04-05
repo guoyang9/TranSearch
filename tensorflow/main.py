@@ -2,21 +2,21 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import os, sys, time
+import os
+import sys
+import time
 
 import numpy as np 
 import tensorflow as tf 
+
+import config
+import metrics
 import data_input
 from TranSearch import TranSearch
-import metrics
+
 
 
 FLAGS = tf.app.flags.FLAGS
-
-tf.app.flags.DEFINE_integer('visual_size', 4096, 
-			'size of image feature.')
-tf.app.flags.DEFINE_integer('text_size', 512, 
-			'size of textual feature.')
 tf.app.flags.DEFINE_integer('batch_size', 256, 
 			'size of mini-batch.')
 tf.app.flags.DEFINE_integer('negative_num', 5, 
@@ -27,8 +27,6 @@ tf.app.flags.DEFINE_integer('topK', 20,
 			'truncated top items.')
 tf.app.flags.DEFINE_integer('epochs', 20, 
 			'the number of epochs.')
-tf.app.flags.DEFINE_string('dataset', 'MenClothing', 
-			'the pre-trained dataset.')
 tf.app.flags.DEFINE_string('model_dir', './TranSearch/', 
 			'the dir for saving model.')
 tf.app.flags.DEFINE_string('mode', 'end', 
@@ -52,10 +50,8 @@ config = tf.ConfigProto()
 config.gpu_options.allow_growth = True
 
 def main(argv=None):
-	train_data = data_input.TranSearchData(
-			FLAGS.dataset, 'train.csv', FLAGS.negative_num, True)
-	test_data = data_input.TranSearchData(
-			FLAGS.dataset, 'test.csv', FLAGS.negative_num, False)
+	train_data = data_input.TranSearchData(FLAGS.negative_num, True)
+	test_data = data_input.TranSearchData(FLAGS.negative_num, False)
 
 	train_dataset = tf.data.Dataset.from_generator(train_data.get_instance,
 				output_types=(tf.int32, tf.float32, tf.float32, 
@@ -84,8 +80,7 @@ def train(sess, train_iter, item_size, user_size,
 						test_data, all_items_idx, user_bought):
 
 	############################### CREATE MODEL #############################
-	
-	model = TranSearch(FLAGS.visual_size, FLAGS.text_size, FLAGS.embed_size,
+	model = TranSearch(config.visual_size, config.textual_size, FLAGS.embed_size,
 						item_size, user_size, FLAGS.mode, FLAGS.lr, 
 						FLAGS.l2_rate, FLAGS.optim, FLAGS.activation, 
 						False, FLAGS.dropout, FLAGS.negative_num, is_training=True)
@@ -103,7 +98,6 @@ def train(sess, train_iter, item_size, user_size,
 			model.pre_train.restore(sess, './Variables/pre_train.ckpt')
 
 	############################### Training ####################################
-
 	count = 0
 	for epoch in range(FLAGS.epochs):
 		model.is_training = True
@@ -122,10 +116,10 @@ def train(sess, train_iter, item_size, user_size,
 							time.gmtime(time.time() - start_time)))
 
 	################################## SAVE MODEL ################################
-
 	# checkpoint_path = os.path.join(FLAGS.model_dir, "TranSearch.ckpt")
 	# model.saver.save(sess, checkpoint_path)
 	
+
 def test(model, sess, test_data, all_items_idx, user_bought):
 	model.is_training = False
 	model.test_first = True
@@ -133,7 +127,6 @@ def test(model, sess, test_data, all_items_idx, user_bought):
 	HR, MRR, NDCG = [], [], []
 
 	########################## GET ALL ITEM EMBEDDING ONCE ######################
-
 	for sample in test_data.get_all_test():
 		item_embed = model.step(sess, sample, None, None)
 		all_items_embed.append(item_embed[0][0])
@@ -142,7 +135,6 @@ def test(model, sess, test_data, all_items_idx, user_bought):
 	all_items_embed = np.array(all_items_embed)
 
 	########################## TEST FOR EACH USER QUERY PAIR #####################
-
 	for sample in test_data.get_instance():
 		item_indices = model.step(sess, sample, all_items_embed, None)[0]
 		itemID = sample[3]

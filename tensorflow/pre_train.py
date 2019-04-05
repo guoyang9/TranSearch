@@ -2,7 +2,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import os, sys, time
+import os
+import sys
+import time
 
 import numpy as np 
 import tensorflow as tf 
@@ -100,7 +102,6 @@ class PreTrain(object):
 
 			loss = tf.maximum(0.0, margin + dis_pos - dis_neg)
 			loss = tf.reduce_mean(loss)
-
 			return loss
 
 		with tf.name_scope("loss"):
@@ -153,6 +154,7 @@ class PreTrain(object):
 			outputs = session.run([self.final_loss, self.optim, self.summary_op])
 			self.writer.add_summary(outputs[-1], global_step=step)
 
+
 def main(argv=None):
 
 	FLAGS = tf.app.flags.FLAGS
@@ -182,8 +184,7 @@ def main(argv=None):
 	config.gpu_options.allow_growth = True
 
 	############################# PREPARE DATASET ###########################
-
-	data = data_input.pretrainData(FLAGS.dataset, FLAGS.negative_num)
+	data = data_input.PretrainData(FLAGS.negative_num)
 	train_dataset = tf.data.Dataset.from_generator(data.build,
 				output_types=(tf.float32, tf.float32, tf.float32, 
 							tf.float32, tf.float32, tf.float32),
@@ -201,7 +202,6 @@ def main(argv=None):
 		train_next = train_iter.get_next()
 
 	############################## CREATE MODEL #############################
-
 		model = PreTrain(text_size=512, visual_size=4096, 
 						embed_size=FLAGS.embedding_size, 
 						lr=FLAGS.lr, dropout=FLAGS.dropout,is_training=True)		
@@ -217,7 +217,6 @@ def main(argv=None):
 			sess.run(tf.global_variables_initializer())
 
 	################################## TRAINING ############################
-
 		count = 0
 		for epoch in range(FLAGS.epochs):
 			start_time = time.time()
@@ -237,7 +236,6 @@ def main(argv=None):
 			model.get_data(train_next)
 
 	################################## SAVE MODEL ##########################
-
 		checkpoint_path = os.path.join(FLAGS.model_dir, "pre_train.ckpt")
 		model.saver.save(sess, checkpoint_path)
 

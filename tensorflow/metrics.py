@@ -1,6 +1,3 @@
-from __future__ import absolute_import
-from __future__ import print_function
-
 import numpy as np 
 
 def mrr(gt_item, pred_items):
@@ -10,10 +7,12 @@ def mrr(gt_item, pred_items):
 	else:
 		return 0
 
+
 def hit(gt_item, pred_items):
 	if gt_item in pred_items:
 		return 1
 	return 0
+
 
 def ndcg(gt_item, pred_items):
 	if gt_item in pred_items:

@@ -2,7 +2,10 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import os, argparse, time, sys
+import os, sys
+import time
+import argparse
+sys.path.append(os.getcwd())
 
 import numpy as np
 import pandas as pd
@@ -10,25 +13,25 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.backends.cudnn as cudnn
 from torch.utils.data import DataLoader
 from tensorboardX import SummaryWriter
-from torch.optim.lr_scheduler import ReduceLROnPlateau
 
-from data_input import TranSearchData
 import evaluate
+import config
+from data_input import TranSearchData
 
-ROOT_DIR = '../processed/'
 
 class TranSearch(nn.Module):
-	def __init__(self, visual_FC, textual_FC, visual_size, 
-						text_size, embed_size, 
-						user_size, mode, dropout, is_training):
+	def __init__(self, visual_FC, textual_FC, 
+			visual_size, text_size, embed_size, 
+			user_size, mode, dropout, is_training):
 		super(TranSearch, self).__init__()
 		""" 
 		Important Args:
-		visual_size: for end_to_end is 4096, for others is not.
-		text_size: for end_to_end is 512, for others is not.
-		mode: could be 'end', vis', 'text', 'double'.
+		visual_size: for end_to_end is 4096, for others is not
+		text_size: for end_to_end is 512, for others is not
+		mode: could be 'end', vis', 'text', 'double'
 		"""
 		self.visual_size = visual_size
 		self.text_size = text_size
@@ -44,88 +47,68 @@ class TranSearch(nn.Module):
 				m.bias.data.fill_(0)
 
 		if self.mode == 'end':
-			# Visual fully connected layers.
+			# visual fully connected layers
 			self.visual_FC = nn.Sequential(
 				nn.Linear(visual_size, embed_size),
 				nn.ELU(),
 				nn.Dropout(p=dropout),
 				nn.Linear(embed_size, embed_size),
-				nn.ELU()
-			)
+				nn.ELU())
 
-			# Textual fully connected layers.
+			# textual fully connected layers
 			self.textual_FC = nn.Sequential(
 				nn.Linear(text_size, embed_size),
 				nn.ELU(),
 				nn.Dropout(p=dropout),
 				nn.Linear(embed_size, embed_size),
-				nn.ELU()
-			)
+				nn.ELU())
 			self.visual_FC.apply(init_weights)
 			self.textual_FC.apply(init_weights)
 		else:
 			self.visual_FC = visual_FC
 			self.textual_FC = textual_FC
 
-		# User and query embedding.
-		self.user_embed = nn.Sequential(
-			nn.Linear(self.user_size, embed_size),
-			nn.ELU()
-		)
+		# user and query embedding
+		self.user_embed = nn.Embedding(self.user_size, embed_size)
+		nn.init.xavier_uniform_(self.user_embed.weight)
 
 		self.query_embed = nn.Sequential(
 			nn.Linear(text_size, embed_size),
-			nn.ELU()
-		)
-		self.user_embed.apply(init_weights)
+			nn.ELU())
 		self.query_embed.apply(init_weights)
 
-		# For embed user and item in the same space
+		# for embed user and item in the same space
 		self.translation = nn.Sequential(
 			nn.Linear(embed_size, embed_size),
-			nn.ELU()
-		)
+			nn.ELU())
 		self.translation.apply(init_weights)
 
-		# Item fully connected layers.
+		# item fully connected layers
 		if self.mode in ['end', 'double']:
 			self.item_FC = nn.Sequential(
 				nn.Linear(2*embed_size, embed_size),
 				# nn.ELU(),
 				# nn.Dropout(p=dropout),
 				# nn.Linear(embed_size, embed_size),
-				nn.ELU()
-			)
+				nn.ELU())
 		else:
 			self.item_FC = nn.Sequential(
 				nn.Linear(embed_size, embed_size),
 				nn.ELU(),
 				nn.Linear(embed_size, embed_size),
-				nn.ELU()
-			)
+				nn.ELU())
 		self.item_FC.apply(init_weights)
 
-	def convert_onehot(self, feature):
-		"""Convert user to one-hot format"""
-		batch_size = feature.shape[0]
-		feature = feature.view(-1, 1)
-		f_onehot = torch.cuda.FloatTensor(batch_size, self.user_size)
-		f_onehot.zero_()
-		f_onehot.scatter_(1, feature.data, 1)
-
-		return f_onehot
-
 	def forward(self, user, query, pos_vis, pos_text, 
-						neg_vis, neg_text, test_first):
+							neg_vis, neg_text, test_first):
 		if not test_first:
-			user = self.convert_onehot(user)
-			user = self.user_embed(user)
+			user = F.elu(self.user_embed(user))
 			user = self.translation(user)
 			query = self.translation(self.query_embed(query))
 			item_predict = user + query
 
 		if self.is_training or test_first:
-			# Postive features attention and concatenation.
+			# postive features attention and concatenation
 			if self.mode == 'vis':
 				pos_vis = self.visual_FC(pos_vis)
 				pos_concat = pos_vis
@@ -157,99 +140,112 @@ class TranSearch(nn.Module):
 			neg_items =self.translation(neg_items)
 
 			return item_predict, pos_item, neg_items
-
 		else:
 			if test_first:
 				return pos_item
 			else:
 				return item_predict
 
+
 def TripletLoss(anchor, positive, negatives):
 	""" 
 	We found that add all the negative ones together can 
-	yeild better performance.
+	yeild relatively better performance.
 	"""
-    batch_size = negatives.shape[0]
-    neg_num = negatives.shape[1]
-    embed_size = negatives.shape[2]
-    negatives = negatives.view(neg_num, batch_size, embed_size)
+	batch_size, neg_num, embed_size = negatives.size()
+	negatives = negatives.view(neg_num, batch_size, embed_size)
 
-    losses = 0
-    for idx, negative in enumerate(negatives):
-        losses += torch.mean(
-        	F.triplet_margin_loss(anchor, positive, negative))
+	losses = 0
+	for idx, negative in enumerate(negatives):
+		losses += torch.mean(
+			F.triplet_margin_loss(anchor, positive, negative))
+	return losses/(idx+1)
 
-    return losses/(idx+1)
 
 def main():
 	parser = argparse.ArgumentParser()
-
-	parser.add_argument("--dataset", default='MenClothing', type=str,
-				help="choose dataset to process.")
-	parser.add_argument("--embed_size", default=32, type=int,
-				help="the final embedding size.")
-	parser.add_argument("--lr", default=0.001, type=float,
-				help="the learning rate for optimization method.")
-	parser.add_argument("--dropout", default=0.5, type=float,
-				help="the dropout rate.")
-	parser.add_argument("--neg_number", default=5, type=int,
-				help="negative numbers for training the triplet model.")
-	parser.add_argument("--batch_size", default=512, type=int,
-				help="batch size for training.")
-	parser.add_argument("--top_k", default=20, type=int,
-				help="topk rank items for evaluating.")
-	parser.add_argument("--is_output", default=False, type=bool,
-				help="output the result for rank test.")
-	parser.add_argument("--mode", default='double', type=str,
-				help="the model mode.")
-	parser.add_argument("--gpu", default='0', type=str,
-				help="choose the gpu card number.")
-
+	parser.add_argument("--embed_size", 
+		type=int,
+		default=32, 
+		help="the final embedding size")
+	parser.add_argument("--lr", 
+		type=float,
+		default=0.001, 
+		help="the learning rate for optimization method")
+	parser.add_argument("--dropout", 
+		type=float,
+		default=0.5, 
+		help="the dropout rate")
+	parser.add_argument("--neg_number", 
+		type=int,
+		default=5, 
+		help="negative numbers for training the triplet model")
+	parser.add_argument("--batch_size", 
+		type=int,
+		default=512, 
+		help="batch size for training")
+	parser.add_argument("--top_k", 
+		type=int,
+		default=20, 
+		help="topk rank items for evaluating")
+	parser.add_argument("--is_output", 
+		action='store_true', 
+		default=False,
+		help="output the result for rank test")
+	parser.add_argument("--mode", 
+		type=str,
+		default='double', 
+		help="the model mode")
+	parser.add_argument("--gpu", 
+		type=str,
+		default='0', 
+		help="choose the gpu card number.")
 	FLAGS = parser.parse_args()
 
-	writer = SummaryWriter() #For visualization
+
+	writer = SummaryWriter() # for visualization
 
 	opt_gpu = FLAGS.gpu
 	os.environ["CUDA_VISIBLE_DEVICES"] = opt_gpu
+	cudnn.benchmark = True
 
 	############################# PREPARE DATASET ##########################
-
-	data_train = TranSearchData(
-				FLAGS.dataset, 'train.csv', is_training=True)
-	data_test  = TranSearchData(
-				FLAGS.dataset, 'test.csv', is_training=False)
+	data_train = TranSearchData(FLAGS.neg_number, is_training=True)
+	data_test  = TranSearchData(FLAGS.neg_number, is_training=False)
 	print("Sampling negative items for each positive pairs......\n")
-	data_train.sample_neg(FLAGS.neg_number)
+	data_train.sample_neg()
 	dataloader_train = DataLoader(data_train, 
 			batch_size=FLAGS.batch_size, shuffle=True, num_workers=4)
-	data_test.sample_neg(0)
+	data_test.sample_neg()
 	dataloader_test = DataLoader(data_test, shuffle=False, batch_size=1)
 
 	####################### LOAD PRE-TRAIN WEIGHTS ##########################
-
-	visual_FC = torch.load('./Variable/visual_FC.pt')
-	#First remove the dropout layer.
-	modules = list(visual_FC.children())[:2] + list(visual_FC.children())[3:]
-	visual_FC = nn.Sequential(*modules)
-	visual_FC.requires_grad=False
-	textual_FC = torch.load('./Variable/textual_FC.pt')
-	modules = list(textual_FC.children())[:2] + list(textual_FC.children())[3:]
-	textual_FC = nn.Sequential(*modules)
-	textual_FC.requires_grad=False
+	if os.path.exists(config.image_weights_path) and config.mode == 'double':
+		visual_FC = torch.load(config.image_weights_path)
+		# remove the dropout layer
+		modules = list(
+			visual_FC.children())[:2] + list(visual_FC.children())[3:]
+		visual_FC = nn.Sequential(*modules)
+		visual_FC.requires_grad = False
+		textual_FC = torch.load(config.text_weights_path)
+		modules = list(
+			textual_FC.children())[:2] + list(textual_FC.children())[3:]
+		textual_FC = nn.Sequential(*modules)
+		textual_FC.requires_grad = False
+	else:
+		visual_FC = None
+		textual_FC = None
 
 	############################## CREATE MODEL ###########################
-
-	full_data = pd.read_csv(os.path.join(ROOT_DIR, 
-					FLAGS.dataset, 'full.csv'), usecols=['userID'])
+	full_data = pd.read_csv(config.full_path, usecols=['userID'])
 	user_size = len(full_data.userID.unique())
 
-	# Create model.
-	model = TranSearch(visual_FC, textual_FC, 4096, 512, FLAGS.embed_size,
-					user_size, FLAGS.mode, FLAGS.dropout, is_training=True)
+	# create model
+	model = TranSearch(visual_FC, textual_FC, 
+			config.visual_size, config.textual_size, 
+			FLAGS.embed_size, user_size, 
+			FLAGS.mode, FLAGS.dropout, is_training=True)
 	model.cuda()
-	# optimizer = torch.optim.SGD(
-	# 					 model.parameters(), momentum=0.9, lr=0.01)
-	#scheduler = ReduceLROnPlateau(optimizer, min_lr=1e-08, patience=30)
 	optimizer = torch.optim.Adam(
 				model.parameters(), lr=FLAGS.lr, weight_decay=0.0001)
 
@@ -268,30 +264,28 @@ def main():
 			neg_text = batch_data['neg_text'].cuda()
 
 			model.zero_grad()
-
 			item_predict, pos_item, neg_items = model(user, query,
 						pos_vis, pos_text, neg_vis, neg_text, False)
 			loss = TripletLoss(item_predict, pos_item, neg_items)
 
 			loss.backward()
 			optimizer.step()
-			# scheduler.step(loss.data[0])
 
 			writer.add_scalar('data/endtoend_loss', loss.data.item(),
-			                                epoch*len(dataloader_train)+idx)
+											epoch*len(dataloader_train)+idx)
 
-		print("Epoch %d training is done!\n" %epoch)
+		print("Epoch {:d} training is done!\n" .format(epoch))
 
-		# Start testing
+		# start testing
 		model.eval() 
 		model.is_training = False
 		Mrr, Hr, Ndcg = evaluate.metrics(model, data_test,
 					dataloader_test, FLAGS.top_k, FLAGS.is_output, epoch)
 			
 		elapsed_time = time.time() - start_time
-		print("Epoch: %d\t" %epoch + "Epoch time: " + time.strftime(
+		print("Epoch: {:d}\t".format(epoch) + "Epoch time: " + time.strftime(
 							"%H: %M: %S", time.gmtime(elapsed_time)))
-		print("Mrr is %.3f.\nHit ratio is %.3f.\nNdcg is %.3f.\n" %(
+		print("Mrr is {:.3f}.\nHit ratio is {:.3f}.\nNdcg is {:.3f}.\n".format(
 																Mrr, Hr, Ndcg))
 
 

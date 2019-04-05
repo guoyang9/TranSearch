@@ -2,35 +2,31 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import json, os, sys
+import os
+import json
 
 import numpy as np
 import pandas as pd
 import tensorflow as tf 
 from gensim.models.doc2vec import Doc2Vec
 
-ROOT_DIR = '../processed/'
+import config
 
 
-class pretrainData(object):
-	def __init__(self, dataset, neg_number):
+class PretrainData(object):
+	def __init__(self, neg_number):
 		""" For pretraining the image and review features."""
 		self.neg_number = neg_number
-		self.data_path = os.path.join(ROOT_DIR, dataset)
-		self.asin_dict = json.load(open(
-			os.path.join(self.data_path, 'asin_sample.json'), 'r'))
-
+		self.asin_dict = json.load(open(config.asin_sample_path, 'r'))
 		self.all_items = set(self.asin_dict.keys())
-		# Prepare textual feture data.
-		self.doc2vec_model = Doc2Vec.load(
-							os.path.join(self.data_path, 'doc2vecFile'))
-		self.text_vec = {}
-		for asin in self.asin_dict:
-			self.text_vec[asin] = self.doc2vec_model.docvecs[asin]
 
-		# Prepare visual feature data.
-		self.vis_vec = np.load(os.path.join(
-					ROOT_DIR, dataset, 'image_feature.npy')).item()
+		# textual feture data
+		doc2vec_model = Doc2Vec.load(config.doc2model_path)
+		self.text_vec = {
+			asin: doc2vec_model.docvecs[asin] for asin in self.asin_dict}
+
+		# visual feature data
+		self.vis_vec = np.load(config.img_feature_path).item()
 
 	def sample(self):
 		""" Sample the anchor, positive, negative tuples."""
@@ -60,31 +56,26 @@ class pretrainData(object):
 					neg_text, neg_vis) 
 
 
-class TranSearchData(pretrainData):
-	def __init__(self, dataset, datafile, neg_number, is_training):
+class TranSearchData(PretrainData):
+	def __init__(self, neg_number, is_training):
 		""" Without pre-train, input the raw data."""
-		super().__init__(dataset, neg_number)
+		super().__init__(neg_number)
 		self.is_training = is_training
-		self.data = pd.read_csv(
-						os.path.join(self.data_path, datafile))
-		self.query_dict = json.load(open(
-				os.path.join(self.data_path, 'queryFile.json'), 'r'))
-		self.user_bought = json.load(open(
-				os.path.join(self.data_path, 'user_bought.json'), 'r'))
+		split = config.train_path if self.is_training else config.test_path
+		self.data = pd.read_csv(split)
+		self.query_dict = json.load(open(config.query_path, 'r'))
+		self.user_bought = json.load(open(config.user_bought_path, 'r'))
 
 	def sample_neg(self):
-		""" Take the also_view or buy_after_viewing 
-			as negative samples.
-		"""
+		""" Take the also_view or buy_after_viewing as negative samples. """
 		self.features = []
 		for i in range(len(self.data)):
 			query_vec = self.doc2vec_model.docvecs[
 								self.query_dict[self.data['query_'][i]]]
 			if self.is_training:
-				# We tend to sample negative ones from the 
-				# also_view and buy_after_viewing items, if don't 
-				# have enough, we then randomly sample negative 
-				# ones(which stored in 'negative').
+				# We tend to sample negative ones from the also_view and 
+				# buy_after_viewing items, if don't have enough, we then 
+				# randomly sample negative ones.
 				asin = self.data['asin'][i]
 				sample = self.asin_dict[asin]
 				all_sample = sample['positive'] + sample['negative']
