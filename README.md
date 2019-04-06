@@ -11,6 +11,10 @@ You can download the Amazon Dataset from http://jmcauley.ucsd.edu/data/amazon.
 ## The requirements are as follows:
 * python==3.6
 
+* pandas==0.24.2
+
+* numpy==1.16.2
+
 * pytorch==0.4.0
 
 * tensorflow==1.7
