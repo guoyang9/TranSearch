@@ -144,7 +144,7 @@ def main():
 
 	# Prepare input data.
 	data = PretrainData(FLAGS.neg_number)
-	print("Sampling negative items for each positive pairs......\n")
+	print("Sampling negative items for each positive pairs...")
 	print("Start training......")
 
 	for epoch in range(FLAGS.epochs):
@@ -189,7 +189,7 @@ def main():
 
 		elapsed_time = time.time() - start_time
 		print("Epoch: {:d}\t".format(epoch) + "Epoch time: " +
-			time.strftime("%H: %M: %S", time.gmtime(elapsed_time))+'\n')
+			time.strftime("%H: %M: %S", time.gmtime(elapsed_time)))
 
 	model.eval()
 	model.is_training = False

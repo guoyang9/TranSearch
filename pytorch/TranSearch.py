@@ -46,7 +46,7 @@ class TranSearch(nn.Module):
 				nn.init.xavier_uniform_(m.weight)
 				m.bias.data.fill_(0)
 
-		if self.mode == 'end':
+		if not self.mode == 'double':
 			# visual fully connected layers
 			self.visual_FC = nn.Sequential(
 				nn.Linear(visual_size, embed_size),
@@ -220,7 +220,7 @@ def main():
 	dataloader_test = DataLoader(data_test, shuffle=False, batch_size=1)
 
 	####################### LOAD PRE-TRAIN WEIGHTS ##########################
-	if os.path.exists(config.image_weights_path) and config.mode == 'double':
+	if os.path.exists(config.image_weights_path) and FLAGS.mode == 'double':
 		visual_FC = torch.load(config.image_weights_path)
 		# remove the dropout layer
 		modules = list(
@@ -249,6 +249,8 @@ def main():
 	optimizer = torch.optim.Adam(
 				model.parameters(), lr=FLAGS.lr, weight_decay=0.0001)
 
+	best_mrr, best_hit, best_ndcg = 0.0, 0.0, 0.0
+	best_epoch = 0
 	print("Start training......\n")
 	for epoch in range(20):
 		model.is_training = True
@@ -274,8 +276,6 @@ def main():
 			writer.add_scalar('data/endtoend_loss', loss.data.item(),
 											epoch*len(dataloader_train)+idx)
 
-		print("Epoch {:d} training is done!\n" .format(epoch))
-
 		# start testing
 		model.eval() 
 		model.is_training = False
@@ -285,8 +285,17 @@ def main():
 		elapsed_time = time.time() - start_time
 		print("Epoch: {:d}\t".format(epoch) + "Epoch time: " + time.strftime(
 							"%H: %M: %S", time.gmtime(elapsed_time)))
-		print("Mrr is {:.3f}.\nHit ratio is {:.3f}.\nNdcg is {:.3f}.\n".format(
+		print("Mrr is {:.3f}.\tHit ratio is {:.3f}.\tNdcg is {:.3f}.".format(
 																Mrr, Hr, Ndcg))
+		if Mrr > best_mrr:
+			best_mrr = Mrr
+			best_hit = Hr
+			best_ndcg = Ndcg
+			best_epoch = epoch
+
+	print("\nThe best epoch is on {}".format(best_epoch), end=': ')
+	print("Mrr is {:.3f}.\tHit ratio is {:.3f}.\tNdcg is {:.3f}.".format(
+												best_mrr, best_hit, best_ndcg))
 
 
 if __name__ == "__main__":

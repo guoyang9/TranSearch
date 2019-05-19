@@ -9,31 +9,25 @@ Yangyang Guo, Zhiyong Cheng, Liqiang Nie, Xin-Shun Xu, Mohan Kankanhalli (2018).
 You can download the Amazon Dataset from http://jmcauley.ucsd.edu/data/amazon.
 
 ## The requirements are as follows:
-* python==3.6
-
-* pandas==0.24.2
-
-* numpy==1.16.2
-
-* pytorch==0.4.0
-
-* tensorflow==1.7
-
-* gensim==3.7.1
-
-* tensorboardX==1.6
+	* python==3.6
+	* pandas==0.24.2
+	* numpy==1.16.2
+	* pytorch==0.4.0
+	* tensorflow==1.7
+	* gensim==3.7.1
+	* tensorboardX==1.6
 
 ## Example to run:
-* Make sure the review data, meta data and image features are in the same directory.
+* Make sure the review data, meta data and image features are in the same directory. Be careful with the review, meta and image file name.
 
 * Preprocessing data. Noted that the category >Clothing contains both the >Men's Clothing and >Women's Clothing. 
 	```
-	python script/preprocess.py  --count=5 --is_clothing
+	python scripts/preprocess.py  --count=5 --is_clothing
 	```
 
 * We leverage the PV-DM model to convert queries and product representations to the same latent space. Besides, we extract the image features here. Be sure to use the correct image feature weights.
 	```
-	python script/doc2vec_img2dict.py  --img_feature_file
+	python script/doc2vec_img2dict.py 
 	```
 
 * Pre-training is optional to train the final model. 
